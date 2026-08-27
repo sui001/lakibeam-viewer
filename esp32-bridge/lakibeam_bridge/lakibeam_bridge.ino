@@ -26,8 +26,12 @@
 #define ETH_MISO   13
 #define ETH_MOSI   11
 #define ETH_CS     10
-#define ETH_IRQ    14
-#define ETH_RST     9
+
+// INT and RST are optional. The small "W5500 Lite" modules often do not break
+// them out. Set either to -1 and the driver polls instead of using the
+// interrupt, and skips the hardware reset. Both work fine at this data rate.
+#define ETH_IRQ    14      // -1 if not available
+#define ETH_RST     9      // -1 if not available
 
 // Serial link to the flight controller.
 #define FC_TX      17

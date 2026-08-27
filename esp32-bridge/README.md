@@ -42,8 +42,27 @@ as a $5 module.
 | Part | Notes |
 |---|---|
 | ESP32-S3 SuperMini | Any ESP32 works. The S3 has no Ethernet MAC, hence the W5500. |
-| W5500 SPI module | The common blue breakout is fine. Needs 3.3V logic. |
+| W5500 SPI module | Prefer the small "Lite" board, see below. |
 | LakiBeam 1 | 12V on the barrel jack, Ethernet. There is no USB interface. |
+
+### Which W5500 module
+
+Two are commonly sold. **Prefer the small one**, roughly 23 x 28.5mm with the
+RJ45 taking up most of the board.
+
+The larger board, around 55 x 28mm, is bigger because it carries a 3.3V
+regulator and 5V tolerant buffering so it can be driven from a 5V Arduino Uno
+or Mega. An ESP32 is natively 3.3V, so that circuitry solves a problem you do
+not have and costs you twice the length.
+
+Two things to check on the small module:
+
+- **Does it break out `INT` and `RST`?** Many Lite boards only give you MOSI,
+  MISO, SCK, SCS, 3V3 and GND. That is fine. Set `ETH_IRQ` and `ETH_RST` to
+  `-1` in the sketch and the driver polls instead of using the interrupt.
+- **Power.** The W5500 draws roughly 130 to 180mA with the link up, on top of
+  the ESP32's own peaks. Usually fine from the SuperMini's 3V3 pin. If the link
+  drops under traffic or the board resets, give the W5500 its own 3.3V supply.
 
 An original ESP32 with a LAN8720 would be faster, since it has a real Ethernet
 MAC and uses RMII rather than SPI. It is not necessary: W5500 over SPI manages
@@ -59,8 +78,8 @@ W5500 to ESP32-S3 SuperMini:
 | MISO | GPIO13 | |
 | MOSI | GPIO11 | |
 | SCS | GPIO10 | chip select |
-| INT | GPIO14 | |
-| RST | GPIO9 | |
+| INT | GPIO14 | optional, set `ETH_IRQ` to -1 if absent |
+| RST | GPIO9 | optional, set `ETH_RST` to -1 if absent |
 | 3V3 | 3V3 | **not 5V**, the module is 3.3V logic |
 | GND | GND | |
 
