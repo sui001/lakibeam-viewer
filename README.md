@@ -128,6 +128,19 @@ that reads as drift even when the origin is perfectly fixed.
 If you mount this on something that moves, you need pose estimation and this
 approach no longer applies.
 
+## Putting it on a flight controller
+
+[`esp32-bridge/`](esp32-bridge/) is an ESP32-S3 plus W5500 board that reads the
+sensor over Ethernet, reduces the scan to 72 sectors, and sends MAVLink
+`OBSTACLE_DISTANCE` to a flight controller over serial. ArduPilot then treats it
+as a native 360 degree proximity sensor.
+
+Short version of why it is built that way: the sensor produces about 2 Mbit/s,
+which does not fit down classic CAN, and ArduPilot has no LakiBeam driver so
+passing the packets through unchanged helps nobody. `OBSTACLE_DISTANCE` is about
+11 kbit/s, so the reduction happens on the bridge and the transport stops
+mattering.
+
 ## Licence
 
 MIT
