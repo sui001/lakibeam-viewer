@@ -20,22 +20,25 @@
 #include <common/mavlink.h>
 
 // ── Wiring ───────────────────────────────────────────────────────────────────
-// W5500 on SPI. These avoid the SuperMini's strapping pins (0, 2, 45, 46) and
-// the onboard RGB LED (47). Check them against your board before flashing.
+// W5500 on SPI. Every pin here is within GPIO 1-13, which is all the SuperMini
+// breaks out to headers. Anything above 13 exists on the chip but would need
+// pins soldered to bare pads. GPIO 2 is avoided as a strapping pin.
+// 10-13 are the S3's native FSPI block, which is why they are the SPI four.
 #define ETH_SCK    12
 #define ETH_MISO   13
 #define ETH_MOSI   11
 #define ETH_CS     10
 
-// INT and RST are optional. The small "W5500 Lite" modules often do not break
-// them out. Set either to -1 and the driver polls instead of using the
-// interrupt, and skips the hardware reset. Both work fine at this data rate.
-#define ETH_IRQ    14      // -1 if not available
+// INT and RST. The small "W5500 Lite" module does break both out, so use them:
+// you get the interrupt rather than polling, and a real hardware reset line.
+// On a module that omits them, set either to -1 and the driver copes.
+#define ETH_IRQ     8      // -1 if not available
 #define ETH_RST     9      // -1 if not available
 
-// Serial link to the flight controller.
-#define FC_TX      17
-#define FC_RX      18
+// Serial link to the flight controller. Goes to a TELEM port (6-pin JST-GH),
+// not CAN: FC_TX to TELEM pin 3 (RX), FC_RX to TELEM pin 2 (TX), GND to pin 6.
+#define FC_TX       5
+#define FC_RX       4
 #define FC_BAUD    921600
 
 // ── Network ──────────────────────────────────────────────────────────────────

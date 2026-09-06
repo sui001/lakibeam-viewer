@@ -78,8 +78,8 @@ W5500 to ESP32-S3 SuperMini:
 | MISO | GPIO13 | |
 | MOSI | GPIO11 | |
 | SCS | GPIO10 | chip select |
-| INT | GPIO14 | optional, set `ETH_IRQ` to -1 if absent |
-| RST | GPIO9 | optional, set `ETH_RST` to -1 if absent |
+| INT | GPIO8 | set `ETH_IRQ` to -1 if your module lacks it |
+| RST | GPIO9 | set `ETH_RST` to -1 if your module lacks it |
 | 3V3 | 3V3 | **not 5V**, the module is 3.3V logic |
 | GND | GND | |
 
@@ -87,15 +87,20 @@ Flight controller serial:
 
 | Bridge | Flight controller |
 |---|---|
-| GPIO17 (TX) | serial RX |
-| GPIO18 (RX) | serial TX |
+| GPIO5 (TX) | serial RX |
+| GPIO4 (RX) | serial TX |
 | GND | GND |
 
 Ground between the bridge and the flight controller is not optional.
 
-These pins avoid the SuperMini's strapping pins (GPIO0, 2, 45, 46) and the
-onboard RGB LED on GPIO47. Change them at the top of the sketch if your board
-differs, but check against your board's pinout first.
+Every pin here is within **GPIO 1 to 13**. That is a hard limit on the
+SuperMini: pinouts online list 32 GPIO and the board really does route them,
+but only 1 to 13 reach the headers. The rest are bare pads needing pins
+soldered on. GPIO 2 is skipped as a strapping pin, and 10 to 13 are the S3's
+native FSPI block, which is why they carry SPI.
+
+Change them at the top of the sketch if your board differs, but check against
+your board's pinout first.
 
 ## Build
 
@@ -200,6 +205,26 @@ sees no obstacles, which is the dangerous failure direction. Worth adding a
 **Untested against hardware.** The decoder logic is a direct port of the Python
 in the parent directory, which is confirmed working against a real sensor. The
 MAVLink and Ethernet paths have not yet been run on a flight controller.
+
+## Bring-up: prove the hardware before the MAVLink
+
+`lakibeam_bringup/` is a second sketch that exercises everything except
+MAVLink: SPI to the W5500, the Ethernet link, UDP from the sensor and the
+packet decode. It needs no MAVLink library and nothing connected to the flight
+controller, so it is the right thing to flash first.
+
+It reports every two seconds over USB serial, and each report restates whether
+the W5500 is answering rather than saying so once at boot, because a boot
+banner has scrolled away by the time anyone opens a monitor.
+
+Read it in this order:
+
+| Line | Meaning |
+|---|---|
+| `w5500 NOT RESPONDING over SPI` | SPI wiring or power. Nothing else matters until this clears. |
+| `w5500 responding over SPI` + `link DOWN` | SPI is proven. No Ethernet link: sensor unpowered, or cable. |
+| `link UP` + `packets 0` | Cable and sensor fine. Laser and rotor are almost certainly off. |
+| `packets` with sensible distances | The hardware half is done. Move to `lakibeam_bridge`. |
 
 ## Testing without a flight controller
 
