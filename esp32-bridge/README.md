@@ -194,17 +194,22 @@ near object be hidden by open space beside it.
 
 ## Known limitations
 
-**No configuration of the sensor.** See above. One time setup, persists to
-EEPROM.
+~~No configuration of the sensor.~~ Fixed. `lakibeam_bringup` now enables the
+laser and rotor itself over HTTP, five seconds after the link comes up, and
+only if no packets have arrived. It is guarded on packet count rather than run
+at every boot because the settings persist to EEPROM, so a sensor that is
+already scanning needs no write.
 
 **No health reporting.** The bridge does not tell the flight controller when
 the link drops. If the sensor dies, sectors go to unknown and ArduPilot simply
 sees no obstacles, which is the dangerous failure direction. Worth adding a
 `DISTANCE_SENSOR` health heartbeat before relying on this outdoors.
 
-**Untested against hardware.** The decoder logic is a direct port of the Python
-in the parent directory, which is confirmed working against a real sensor. The
-MAVLink and Ethernet paths have not yet been run on a flight controller.
+**The MAVLink path is untested.** Everything below it is not: on 2026-09-09 the
+SPI bus, the W5500, the Ethernet link, the sensor enable and the packet decode
+all ran against a real LakiBeam on an ESP32-S3 SuperMini. Measured about 178
+packets a second, 176 points per packet, no runts. What has never run is the
+`OBSTACLE_DISTANCE` output into a flight controller.
 
 ## Bring-up: prove the hardware before the MAVLink
 

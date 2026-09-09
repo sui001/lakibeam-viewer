@@ -15,6 +15,7 @@
 #include <ETH.h>
 #include <SPI.h>
 #include <WiFiUdp.h>
+#include <HTTPClient.h>
 
 // ── Wiring ───────────────────────────────────────────────────────────────────
 // All within GPIO 1-13, which is what the SuperMini breaks out to headers.
@@ -30,7 +31,13 @@
 static const IPAddress LOCAL_IP (192, 168, 198, 1);
 static const IPAddress NETMASK  (255, 255, 255, 0);
 static const IPAddress GATEWAY  (192, 168, 198, 1);
+static const IPAddress LIDAR_IP (192, 168, 198, 2);
 static const uint16_t  SCAN_PORT = 2368;
+
+// How long to wait, after the link comes up, before deciding the sensor is
+// silent because its laser and rotor were left off rather than because it is
+// still starting.
+#define CONFIG_AFTER_MS 5000
 
 // ── Packet format ────────────────────────────────────────────────────────────
 #define PKT_LEN       1206
@@ -46,6 +53,9 @@ static uint8_t  pkt[PKT_LEN + 64];
 static bool     eth_up = false;
 static bool     udp_open = false;
 static bool     eth_init_ok = false;   // did the W5500 answer over SPI at all
+static bool     config_done = false;   // laser/rotor enable already attempted
+static uint32_t link_up_ms = 0;
+static uint32_t packets_total = 0;     // survives the reporting window reset
 
 // Stats for the current reporting window.
 static uint32_t packets = 0, runts = 0, points_valid = 0, points_zero = 0;
@@ -154,11 +164,65 @@ static void report() {
   }
 }
 
+/*
+ * Turn the laser and the rotor on.
+ *
+ * They are separate, both off by default, and the setting persists to the
+ * sensor's EEPROM. Enabling the laser alone leaves rpm at 0 and produces no
+ * points at all, which looks exactly like dead hardware. A unit that arrives
+ * "broken" has usually just been switched off in software by whoever had it.
+ *
+ * Two things make this fussy. The CGI needs a Referer header or the request
+ * hangs until timeout instead of returning an error. And the sensor's control
+ * plane starves once it is scanning, so this only runs while it is still
+ * quiet, which is the only time it is reliable anyway.
+ */
+static bool sensor_configure() {
+  // Rotor first. Enabling the laser against a stopped rotor is the failure
+  // mode this whole function exists to avoid.
+  const char *cmds[] = { "method=-freq 5", "method=-en 1" };
+  const char *what[] = { "rotor to fastest scan rate", "laser on" };
+
+  char url[64];
+  snprintf(url, sizeof(url), "http://%s/cgi-bin/config.php",
+           LIDAR_IP.toString().c_str());
+  char referer[64];
+  snprintf(referer, sizeof(referer), "http://%s/config.html",
+           LIDAR_IP.toString().c_str());
+
+  bool all_ok = true;
+  for (int i = 0; i < 2; i++) {
+    HTTPClient http;
+    http.setTimeout(5000);
+    if (!http.begin(url)) {
+      Serial.printf("[cfg] %s: could not open %s\n", what[i], url);
+      all_ok = false;
+      continue;
+    }
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    http.addHeader("Referer", referer);      // required, see above
+
+    int code = http.POST((uint8_t *)cmds[i], strlen(cmds[i]));
+    if (code > 0) {
+      Serial.printf("[cfg] %s: HTTP %d\n", what[i], code);
+      if (code != HTTP_CODE_OK) all_ok = false;
+    } else {
+      Serial.printf("[cfg] %s: failed, %s\n", what[i],
+                    http.errorToString(code).c_str());
+      all_ok = false;
+    }
+    http.end();
+    delay(300);      // let the CGI finish its EEPROM write before the next one
+  }
+  return all_ok;
+}
+
 static void on_eth_event(arduino_event_id_t event) {
   switch (event) {
     case ARDUINO_EVENT_ETH_CONNECTED:
       Serial.println("[eth] link up");
       eth_up = true;
+      link_up_ms = millis();
       break;
     case ARDUINO_EVENT_ETH_GOT_IP:
     case ARDUINO_EVENT_ETH_START:
@@ -217,12 +281,31 @@ void loop() {
       last_sender = udp.remoteIP();
       decode_stats(pkt);
       packets++;
+      packets_total++;
     } else {
       runts++;
     }
   }
 
   uint32_t now = millis();
+
+  // Enable the laser and rotor, once, only if the sensor is silent. Guarded on
+  // packets_total rather than run unconditionally at boot: the settings persist
+  // to EEPROM, so a sensor that is already scanning needs no write, and there
+  // is no reason to spend EEPROM cycles on every power cycle.
+  if (eth_up && !config_done && packets_total == 0 &&
+      now - link_up_ms >= CONFIG_AFTER_MS) {
+    config_done = true;
+    Serial.println("\n[cfg] Link is up but silent. Enabling laser and rotor.");
+    if (sensor_configure()) {
+      Serial.println("[cfg] Accepted. Scan data should start within a second.");
+    } else {
+      Serial.println("[cfg] At least one command failed. If the sensor stays");
+      Serial.println("      quiet, check it answers at 192.168.198.2 at all.");
+    }
+    last_report_ms = now;    // do not fire a stale report straight after
+  }
+
   if (now - last_report_ms >= REPORT_MS) {
     last_report_ms = now;
     report();
