@@ -17,6 +17,7 @@
 #include <ETH.h>
 #include <SPI.h>
 #include <WiFiUdp.h>
+#include <HTTPClient.h>
 #include <common/mavlink.h>
 
 // ── Wiring ───────────────────────────────────────────────────────────────────
@@ -74,6 +75,10 @@ static const uint16_t  SCAN_PORT = 2368;
 // ── Output rate ──────────────────────────────────────────────────────────────
 #define SEND_INTERVAL_MS 100        // 10Hz
 
+// How long to wait after link-up before deciding the sensor is silent because
+// its laser and rotor are off, rather than because it is still starting.
+#define CONFIG_AFTER_MS 5000
+
 // MAVLink identity of this bridge. Must not collide with the autopilot (1).
 #define MAV_SYS_ID   1
 #define MAV_COMP_ID  MAV_COMP_ID_OBSTACLE_AVOIDANCE
@@ -86,6 +91,9 @@ static bool     eth_up = false;
 static uint32_t last_send_ms = 0;
 static uint32_t packets_in = 0, frames_out = 0;
 static uint32_t last_stat_ms = 0;
+static bool     config_done = false;   // laser/rotor enable already attempted
+static uint32_t link_up_ms = 0;
+static uint32_t packets_total = 0;     // survives the stat window reset
 
 static void sectors_reset() {
   for (int i = 0; i < NUM_SECTORS; i++) sectors[i] = DIST_UNKNOWN;
@@ -172,10 +180,70 @@ static void send_obstacle_distance() {
   frames_out++;
 }
 
+/*
+ * Turn the laser and the rotor on.
+ *
+ * They are separate and both off by default. Enabling the laser alone leaves
+ * rpm at 0 and produces no points at all, which looks exactly like dead
+ * hardware.
+ *
+ * This is not a convenience. The vendor documentation says these settings
+ * persist to EEPROM, but measured on 2026-09-09 they did not survive a power
+ * cycle: a sensor enabled and streaming came back silent after its 12V was
+ * cut. Without this the bridge would come up on every boot happily sending
+ * ArduPilot a proximity ring with nothing in it, which reads as "no obstacles"
+ * rather than as a fault. That is the dangerous direction to fail in.
+ *
+ * Two things make the request fussy. The CGI needs a Referer header or it
+ * hangs until timeout instead of returning an error. And the sensor's control
+ * plane starves once it is scanning, so this only runs while it is still
+ * quiet, which is the only time it is reliable anyway.
+ */
+static bool sensor_configure() {
+  // Rotor first. Enabling the laser against a stopped rotor is the failure
+  // mode this whole function exists to avoid.
+  const char *cmds[] = { "method=-freq 5", "method=-en 1" };
+  const char *what[] = { "rotor to fastest scan rate", "laser on" };
+
+  char url[64];
+  snprintf(url, sizeof(url), "http://%s/cgi-bin/config.php",
+           LIDAR_IP.toString().c_str());
+  char referer[64];
+  snprintf(referer, sizeof(referer), "http://%s/config.html",
+           LIDAR_IP.toString().c_str());
+
+  bool all_ok = true;
+  for (int i = 0; i < 2; i++) {
+    HTTPClient http;
+    http.setTimeout(5000);
+    if (!http.begin(url)) {
+      Serial.printf("[cfg] %s: could not open %s\n", what[i], url);
+      all_ok = false;
+      continue;
+    }
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    http.addHeader("Referer", referer);      // required, see above
+
+    int code = http.POST((uint8_t *)cmds[i], strlen(cmds[i]));
+    if (code > 0) {
+      Serial.printf("[cfg] %s: HTTP %d\n", what[i], code);
+      if (code != HTTP_CODE_OK) all_ok = false;
+    } else {
+      Serial.printf("[cfg] %s: failed, %s\n", what[i],
+                    http.errorToString(code).c_str());
+      all_ok = false;
+    }
+    http.end();
+    delay(300);      // let the CGI finish its EEPROM write before the next one
+  }
+  return all_ok;
+}
+
 static void on_eth_event(arduino_event_id_t event) {
   switch (event) {
     case ARDUINO_EVENT_ETH_CONNECTED:
       Serial.println("[eth] link up");
+      link_up_ms = millis();
       break;
     case ARDUINO_EVENT_ETH_GOT_IP:
     case ARDUINO_EVENT_ETH_START:
@@ -230,10 +298,27 @@ void loop() {
     if (len >= PKT_LEN) {
       decode_packet(pkt, len);
       packets_in++;
+      packets_total++;
     }
   }
 
   uint32_t now = millis();
+
+  // Enable the laser and rotor, once, only if the sensor has never spoken.
+  // Guarded on packets_total rather than run unconditionally at boot so a
+  // sensor that is already scanning is left alone.
+  if (eth_up && !config_done && packets_total == 0 &&
+      now - link_up_ms >= CONFIG_AFTER_MS) {
+    config_done = true;
+    Serial.println("[cfg] Link is up but silent. Enabling laser and rotor.");
+    if (sensor_configure()) {
+      Serial.println("[cfg] Accepted. Scan data should start within a second.");
+    } else {
+      Serial.println("[cfg] At least one command failed. Proximity output will");
+      Serial.println("      be empty, which ArduPilot cannot tell from clear air.");
+    }
+    last_send_ms = now;
+  }
 
   if (now - last_send_ms >= SEND_INTERVAL_MS) {
     last_send_ms = now;
@@ -248,9 +333,9 @@ void loop() {
     Serial.printf("[stat] packets in %lu, mavlink out %lu, link %s\n",
                   packets_in, frames_out, eth_up ? "up" : "down");
     if (packets_in == 0 && eth_up) {
-      Serial.println("       No scan data. The sensor's laser and rotor are");
-      Serial.println("       both off by default and the setting persists to");
-      Serial.println("       EEPROM. See ../README.md.");
+      Serial.println("       No scan data, and the laser/rotor enable was");
+      Serial.println("       already sent. ArduPilot is being told the world is");
+      Serial.println("       empty right now. See ../README.md.");
     }
     packets_in = 0;
     frames_out = 0;

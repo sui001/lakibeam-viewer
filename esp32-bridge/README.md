@@ -117,6 +117,17 @@ git clone https://github.com/mavlink/c_library_v2
 Then either copy `c_library_v2` into your Arduino `libraries` folder, or drop
 its contents beside the `.ino`. The sketch includes `<common/mavlink.h>`.
 
+That works in the Arduino IDE. **It does not work with `arduino-cli`**, whose
+library resolver matches on a header at the library root and so never finds
+`mavlink.h` one folder down in `common/`. Passing `--libraries` at the parent
+directory does not help either. Point the compiler at it instead:
+
+```
+arduino-cli compile   --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=4M,PartitionScheme=default"   --build-property "compiler.cpp.extra_flags=-I/path/to/c_library_v2 -Wno-address-of-packed-member"   lakibeam_bridge
+```
+
+Built that way the sketch is about 59% of flash and 10% of RAM on a 4MB S3.
+
 **Board settings** for the SuperMini:
 
 | Setting | Value |
@@ -131,12 +142,23 @@ blank.
 
 ## Enable the sensor first
 
-**The bridge does not configure the sensor.** The LakiBeam ships with its laser
-and rotor both off, and enabling the laser alone leaves the rotor at 0 rpm and
-produces no points at all, which looks exactly like dead hardware.
+**The bridge configures the sensor itself now**, five seconds after the link
+comes up and only if no packets have arrived. You should not have to do
+anything. This section is kept because it explains what the bridge is doing and
+how to do it by hand if that fails.
 
-Those settings **persist to the sensor's EEPROM**, so this is a one time job.
-Run the Python viewer in the parent directory once, on any machine:
+The LakiBeam ships with its laser and rotor both off, and enabling the laser
+alone leaves the rotor at 0 rpm and produces no points at all, which looks
+exactly like dead hardware.
+
+The vendor documentation says these settings persist to the sensor's EEPROM.
+**Measured on 2026-09-09 they did not survive a power cycle**: a sensor that was
+enabled and streaming came back silent after its 12V was cut, and needed the
+enable sent again. Treat the enable as something that has to happen on every
+boot, which is why the bridge does it.
+
+To do it by hand, run the Python viewer in the parent directory once, on any
+machine:
 
 ```
 python ../lakibeam_server.py
