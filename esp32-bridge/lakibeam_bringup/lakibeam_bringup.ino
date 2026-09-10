@@ -48,6 +48,38 @@ static const uint16_t  SCAN_PORT = 2368;
 
 #define REPORT_MS     2000
 
+// ── Status LED ───────────────────────────────────────────────────────────────
+// The onboard WS2812. On a robot there is no serial monitor, so the LED says
+// what the two-second report says, readable from across a room.
+//
+// The pin varies by vendor on these boards: 48 here, 47 on some others.
+// led_pin_test/ settles it in one flash if a board disagrees. neopixelWrite is
+// built into ESP32 core 3.x, no library needed.
+#define LED_PIN        48
+#define LED_LEVEL      40      // of 255. Full brightness is unpleasant to sit beside.
+#define FLASH_FAST_MS  120
+#define FLASH_SLOW_MS  500
+#define STALE_MS       1000    // no packet for this long counts as silent
+
+/*
+ * Two reds on purpose. A hardware fault and an unplugged sensor need opposite
+ * responses, and from across a room a single red cannot tell you which.
+ *
+ * Amber earns its place because "link up, sensor not scanning" is the most
+ * common failure this device has: the laser and rotor default to off. Folding
+ * it into red would send you hunting cables when the fix is a config POST.
+ *
+ * Steady green is gated on real returns, not merely on packets arriving. A
+ * light that sits solid while the sectors are empty is worse than no light.
+ */
+enum Status {
+  ST_FAULT,      // red, fast     W5500 not answering. Solder or power.
+  ST_NOLINK,     // red, slow     No Ethernet link. Sensor unpowered, or cable.
+  ST_SILENT,     // amber, slow   Link up, sensor not scanning.
+  ST_DATA,       // green, slow   Packets arriving, but no returns in them.
+  ST_RUNNING     // green, steady Packets arriving with real returns.
+};
+
 static WiFiUDP  udp;
 static uint8_t  pkt[PKT_LEN + 64];
 static bool     eth_up = false;
@@ -56,6 +88,9 @@ static bool     eth_init_ok = false;   // did the W5500 answer over SPI at all
 static bool     config_done = false;   // laser/rotor enable already attempted
 static uint32_t link_up_ms = 0;
 static uint32_t packets_total = 0;     // survives the reporting window reset
+static uint32_t last_packet_ms = 0;
+static uint32_t last_return_ms = 0;    // last packet that carried a real return
+static bool     saw_return = false;    // set by decode_stats for the packet in hand
 
 // Stats for the current reporting window.
 static uint32_t packets = 0, runts = 0, points_valid = 0, points_zero = 0;
@@ -104,11 +139,67 @@ static void decode_stats(const uint8_t *p) {
       if (dist_mm == 0) { points_zero++; continue; }
 
       points_valid++;
+      saw_return = true;
       if (dist_mm < dist_min) dist_min = dist_mm;
       if (dist_mm > dist_max) dist_max = dist_mm;
       if (a < az_min) az_min = a;
       if (a > az_max) az_max = a;
     }
+  }
+}
+
+static Status status_now() {
+  if (!eth_init_ok) return ST_FAULT;
+  if (!eth_up)      return ST_NOLINK;
+
+  uint32_t now = millis();
+  if (now - last_packet_ms > STALE_MS) return ST_SILENT;
+  if (now - last_return_ms > STALE_MS) return ST_DATA;
+  return ST_RUNNING;
+}
+
+static void led_update() {
+  static const char *name[] = { "FAULT", "NO LINK", "SILENT", "DATA", "RUNNING" };
+  static uint32_t phase_ms = 0;
+  static bool     lit = false;
+  static Status   shown = ST_RUNNING;   // forces an announce on the first pass
+  static bool     announced = false;
+
+  Status   st = status_now();
+  uint32_t now = millis();
+  uint8_t  r = 0, g = 0;
+  uint32_t period;
+
+  switch (st) {
+    case ST_FAULT:  r = LED_LEVEL;                    period = FLASH_FAST_MS; break;
+    case ST_NOLINK: r = LED_LEVEL;                    period = FLASH_SLOW_MS; break;
+    case ST_SILENT: r = LED_LEVEL; g = LED_LEVEL / 3; period = FLASH_SLOW_MS; break;
+    case ST_DATA:                  g = LED_LEVEL;     period = FLASH_SLOW_MS; break;
+    default:                       g = LED_LEVEL;     period = 0;             break;
+  }
+
+  // Announce transitions so the serial log and the LED can never disagree
+  // about what the bridge thinks its state is.
+  if (st != shown || !announced) {
+    Serial.printf("[led] %s\n", name[st]);
+    shown = st;
+    announced = true;
+    lit = true;
+    phase_ms = now;
+    neopixelWrite(LED_PIN, r, g, 0);
+    return;
+  }
+
+  if (period == 0) {
+    if (!lit) { lit = true; neopixelWrite(LED_PIN, r, g, 0); }
+    return;
+  }
+
+  if (now - phase_ms >= period) {
+    phase_ms = now;
+    lit = !lit;
+    if (lit) neopixelWrite(LED_PIN, r, g, 0);
+    else     neopixelWrite(LED_PIN, 0, 0, 0);
   }
 }
 
@@ -249,6 +340,10 @@ void setup() {
   Serial.printf("SPI  sck %d  miso %d  mosi %d  cs %d  irq %d  rst %d\n",
                 ETH_SCK, ETH_MISO, ETH_MOSI, ETH_CS, ETH_IRQ, ETH_RST);
 
+  // Red from the first instruction, so a board that dies during init shows a
+  // fault rather than nothing at all.
+  neopixelWrite(LED_PIN, LED_LEVEL, 0, 0);
+
   stats_reset();
   Network.onEvent(on_eth_event);
 
@@ -279,13 +374,18 @@ void loop() {
     int len = udp.read(pkt, sizeof(pkt));
     if (len >= PKT_LEN) {
       last_sender = udp.remoteIP();
+      saw_return = false;
       decode_stats(pkt);
       packets++;
       packets_total++;
+      last_packet_ms = millis();
+      if (saw_return) last_return_ms = last_packet_ms;
     } else {
       runts++;
     }
   }
+
+  led_update();
 
   uint32_t now = millis();
 
