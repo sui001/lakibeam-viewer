@@ -79,6 +79,38 @@ static const uint16_t  SCAN_PORT = 2368;
 // its laser and rotor are off, rather than because it is still starting.
 #define CONFIG_AFTER_MS 5000
 
+// ── Status LED ───────────────────────────────────────────────────────────────
+// Same ladder as lakibeam_bringup, deliberately. Once this is on a machine
+// there is no serial monitor, and the light is the only thing that will tell
+// you why the proximity ring is empty.
+//
+// Pin varies by vendor on these boards: 48 here, 47 on some others.
+// led_pin_test/ settles it in one flash. neopixelWrite is built into ESP32
+// core 3.x, no library needed.
+#define LED_PIN        48
+#define LED_LEVEL      40      // of 255. Full brightness is unpleasant to sit beside.
+#define FLASH_FAST_MS  120
+#define FLASH_SLOW_MS  500
+#define STALE_MS       1000    // no packet for this long counts as silent
+
+/*
+ * There is no separate state for "MAVLink going out", because that is always
+ * true: send_obstacle_distance() fires every 100ms whether or not a single
+ * packet arrived. A light wired to that would be solid green while ArduPilot
+ * is being told the world is empty, which is the exact failure this project
+ * calls the dangerous direction.
+ *
+ * So steady green is gated on returns that actually landed in a sector, which
+ * is the same thing the autopilot will see.
+ */
+enum Status {
+  ST_FAULT,      // red, fast     W5500 not answering. Solder or power.
+  ST_NOLINK,     // red, slow     No Ethernet link. Sensor unpowered, or cable.
+  ST_SILENT,     // amber, slow   Link up, sensor not scanning.
+  ST_DATA,       // green, slow   Packets arriving, but nothing landing in a sector.
+  ST_RUNNING     // green, steady Sectors carrying real returns.
+};
+
 // MAVLink identity of this bridge. Must not collide with the autopilot (1).
 #define MAV_SYS_ID   1
 #define MAV_COMP_ID  MAV_COMP_ID_OBSTACLE_AVOIDANCE
@@ -94,6 +126,10 @@ static uint32_t last_stat_ms = 0;
 static bool     config_done = false;   // laser/rotor enable already attempted
 static uint32_t link_up_ms = 0;
 static uint32_t packets_total = 0;     // survives the stat window reset
+static bool     eth_init_ok = false;   // did the W5500 answer over SPI at all
+static uint32_t last_packet_ms = 0;
+static uint32_t last_return_ms = 0;    // last packet that put a return in a sector
+static bool     saw_return = false;    // set by sector_add for the packet in hand
 
 static void sectors_reset() {
   for (int i = 0; i < NUM_SECTORS; i++) sectors[i] = DIST_UNKNOWN;
@@ -118,6 +154,10 @@ static inline void sector_add(float angle_deg, uint16_t dist_mm) {
 
   int idx = (int)(a / SECTOR_DEG);
   if (idx < 0 || idx >= NUM_SECTORS) return;
+
+  // Set here rather than on any non-zero reading, so the status light reflects
+  // what actually reaches the autopilot, not what merely arrived on the wire.
+  saw_return = true;
 
   if (sectors[idx] == DIST_UNKNOWN || cm < sectors[idx]) sectors[idx] = cm;
 }
@@ -199,6 +239,61 @@ static void send_obstacle_distance() {
  * plane starves once it is scanning, so this only runs while it is still
  * quiet, which is the only time it is reliable anyway.
  */
+static Status status_now() {
+  if (!eth_init_ok) return ST_FAULT;
+  if (!eth_up)      return ST_NOLINK;
+
+  uint32_t now = millis();
+  if (now - last_packet_ms > STALE_MS) return ST_SILENT;
+  if (now - last_return_ms > STALE_MS) return ST_DATA;
+  return ST_RUNNING;
+}
+
+static void led_update() {
+  static const char *name[] = { "FAULT", "NO LINK", "SILENT", "DATA", "RUNNING" };
+  static uint32_t phase_ms = 0;
+  static bool     lit = false;
+  static Status   shown = ST_RUNNING;   // forces an announce on the first pass
+  static bool     announced = false;
+
+  Status   st = status_now();
+  uint32_t now = millis();
+  uint8_t  r = 0, g = 0;
+  uint32_t period;
+
+  switch (st) {
+    case ST_FAULT:  r = LED_LEVEL;                    period = FLASH_FAST_MS; break;
+    case ST_NOLINK: r = LED_LEVEL;                    period = FLASH_SLOW_MS; break;
+    case ST_SILENT: r = LED_LEVEL; g = LED_LEVEL / 3; period = FLASH_SLOW_MS; break;
+    case ST_DATA:                  g = LED_LEVEL;     period = FLASH_SLOW_MS; break;
+    default:                       g = LED_LEVEL;     period = 0;             break;
+  }
+
+  // Announce transitions so the serial log and the LED can never disagree
+  // about what the bridge thinks its state is.
+  if (st != shown || !announced) {
+    Serial.printf("[led] %s\n", name[st]);
+    shown = st;
+    announced = true;
+    lit = true;
+    phase_ms = now;
+    neopixelWrite(LED_PIN, r, g, 0);
+    return;
+  }
+
+  if (period == 0) {
+    if (!lit) { lit = true; neopixelWrite(LED_PIN, r, g, 0); }
+    return;
+  }
+
+  if (now - phase_ms >= period) {
+    phase_ms = now;
+    lit = !lit;
+    if (lit) neopixelWrite(LED_PIN, r, g, 0);
+    else     neopixelWrite(LED_PIN, 0, 0, 0);
+  }
+}
+
 static bool sensor_configure() {
   // Rotor first. Enabling the laser against a stopped rotor is the failure
   // mode this whole function exists to avoid.
@@ -270,13 +365,18 @@ void setup() {
 
   Serial1.begin(FC_BAUD, SERIAL_8N1, FC_RX, FC_TX);
 
+  // Red from the first instruction, so a board that dies during init shows a
+  // fault rather than nothing at all.
+  neopixelWrite(LED_PIN, LED_LEVEL, 0, 0);
+
   sectors_reset();
 
   Network.onEvent(on_eth_event);
 
   SPI.begin(ETH_SCK, ETH_MISO, ETH_MOSI);
 
-  if (!ETH.begin(ETH_PHY_W5500, 1, ETH_CS, ETH_IRQ, ETH_RST, SPI)) {
+  eth_init_ok = ETH.begin(ETH_PHY_W5500, 1, ETH_CS, ETH_IRQ, ETH_RST, SPI);
+  if (!eth_init_ok) {
     Serial.println("[eth] W5500 init FAILED - check wiring and power");
   }
 
@@ -296,11 +396,16 @@ void loop() {
   while ((n = udp.parsePacket()) > 0) {
     int len = udp.read(pkt, sizeof(pkt));
     if (len >= PKT_LEN) {
+      saw_return = false;
       decode_packet(pkt, len);
       packets_in++;
       packets_total++;
+      last_packet_ms = millis();
+      if (saw_return) last_return_ms = last_packet_ms;
     }
   }
+
+  led_update();
 
   uint32_t now = millis();
 
