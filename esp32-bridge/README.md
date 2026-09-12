@@ -224,6 +224,28 @@ to **0, disabled**, so out of the box you get stopping and no navigating. Set
 it to 1 for BendyRuler, which bends the path reactively, or 2 for Dijkstra,
 which plans a route inside the fence.
 
+### The blind arc reads as clear, not as unknown
+
+`MOUNT_YAW_DEG` is 180 because the LakiBeam's 90 degree blind arc sits at 315
+to 45 degrees in its own frame, behind the sensor. Left at 0 that arc lands on
+MAVLink sector 0 and the vehicle is blind straight ahead while fully sighted
+behind, which is exactly backwards.
+
+**The tell, if this is ever wrong again:** ArduPilot publishes `DISTANCE_SENSOR`
+for orientations 1 to 7 but never 0. A missing sector 0 means the blind arc is
+pointing forward.
+
+With it corrected, the blind arc falls on orientations 3 and 4, and those report
+**1500cm, the maximum**, rather than "unknown". The bridge sends `UINT16_MAX`
+correctly, but by the time it reaches the proximity boundary it has become
+"nothing out to 15 metres". ArduPilot believes the rear is clear when it simply
+cannot see it.
+
+That matters because simple avoidance reverses. `AVOID_BACKUP_SPD` defaults to
+0.75 m/s, so the response to an obstacle in front is to back into the arc the
+vehicle is blind to. **Consider `AVOID_BACKUP_SPD = 0`** so it stops instead,
+unless something else is watching behind.
+
 ### Where the 72 sectors actually go
 
 Worth knowing before tuning: ArduPilot's proximity boundary divides the area

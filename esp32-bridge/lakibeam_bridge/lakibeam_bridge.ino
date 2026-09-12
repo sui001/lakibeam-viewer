@@ -64,7 +64,16 @@ static const uint16_t  SCAN_PORT = 2368;
 
 // Rotate the scan if the sensor is not mounted facing forward. Positive values
 // rotate the picture clockwise. Sector 0 is straight ahead after this is applied.
-#define MOUNT_YAW_DEG 0.0f
+//
+// 180 because the LakiBeam's 90 degree blind arc sits at 315 to 45 degrees in
+// its own frame, which is behind the sensor. Left at 0, that blind arc lands on
+// MAVLink sector 0, so the vehicle is blind straight ahead and fully sighted
+// behind it. Exactly backwards.
+//
+// The tell, if this is ever wrong again: ArduPilot publishes DISTANCE_SENSOR
+// for orientations 1 to 7 but never 0. A missing sector 0 means the blind arc
+// is pointing forward.
+#define MOUNT_YAW_DEG 180.0f
 
 // ── Packet format ────────────────────────────────────────────────────────────
 // 1206 bytes: 12 sub-packets of 100 bytes, then uint32 timestamp + uint16 factory.
