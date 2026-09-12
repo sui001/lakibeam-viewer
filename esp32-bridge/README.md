@@ -312,6 +312,30 @@ Read it in this order:
 | `link UP` + `packets 0` | Cable and sensor fine. Laser and rotor are almost certainly off. |
 | `packets` with sensible distances | The hardware half is done. Move to `lakibeam_bridge`. |
 
+## Watching the bridge without resetting it
+
+**Opening the serial port normally reboots the board.** The S3's native USB
+resets on DTR/RTS assertion, so the Arduino IDE Serial Monitor, and most
+terminal programs at their defaults, restart the bridge the moment you connect.
+The tell is a boot banner appearing every time you look, which reads as a
+crash loop and is not one.
+
+It matters more than it sounds. A reset drops proximity for several seconds,
+during which the bridge sends `OBSTACLE_DISTANCE` frames with every sector
+unknown. ArduPilot cannot tell that from clear air. **Do not open a serial
+monitor while the vehicle is moving.**
+
+To watch passively, clear both lines before opening. In PowerShell:
+
+```powershell
+$p = New-Object System.IO.Ports.SerialPort 'COM38',115200,'None',8,'One'
+$p.DtrEnable = $false
+$p.RtsEnable = $false
+$p.Open()
+```
+
+`arduino-cli monitor` does not assert them and is safe.
+
 ## Testing without a flight controller
 
 The bridge prints statistics to USB serial every 5 seconds:
