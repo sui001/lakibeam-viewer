@@ -57,9 +57,12 @@ not have and costs you twice the length.
 
 Two things to check on the small module:
 
-- **Does it break out `INT` and `RST`?** Many Lite boards only give you MOSI,
-  MISO, SCK, SCS, 3V3 and GND. That is fine. Set `ETH_IRQ` and `ETH_RST` to
-  `-1` in the sketch and the driver polls instead of using the interrupt.
+- **Does it break out `INT` and `RST`?** The board this was built against does,
+  on a 6-way J1 reading GND, 3V3, 3V3, NC, RST, MISO. Use them: you get the
+  interrupt rather than polling, and a real hardware reset line. Some Lite
+  boards omit them, which is also fine. Set `ETH_IRQ` and `ETH_RST` to `-1` and
+  the driver copes. Note the `NC` fourth down on J1, which is easy to miscount
+  past when reaching for RST.
 - **Power.** The W5500 draws roughly 130 to 180mA with the link up, on top of
   the ESP32's own peaks. Usually fine from the SuperMini's 3V3 pin. If the link
   drops under traffic or the board resets, give the W5500 its own 3.3V supply.
@@ -201,6 +204,51 @@ module load proximity
 ```
 
 You should see the room appear as a ring of returns.
+
+## What ArduPilot actually does with it
+
+Getting data in is not the same as getting behaviour out. The parameters above
+only make the autopilot *see*. What it does about what it sees is a separate
+layer, and on a fresh setup most of it is off.
+
+The feed lands in the proximity library, which builds one 360 degree picture.
+Two independent consumers read that picture:
+
+**Simple avoidance** (`AVOID_ENABLE`) is reactive. It refuses to let the
+vehicle closer than `AVOID_MARGIN`, and will reverse at `AVOID_BACKUP_SPD` if
+something closes on it. It does not plan. Faced with a wall it stops short and
+sits there.
+
+**Path planning** (`OA_TYPE`) is what routes around an obstacle. It defaults
+to **0, disabled**, so out of the box you get stopping and no navigating. Set
+it to 1 for BendyRuler, which bends the path reactively, or 2 for Dijkstra,
+which plans a route inside the fence.
+
+### The values worth reconsidering
+
+These are ArduPilot's defaults, checked against a Cube Orange+ running Rover
+in September 2026. None are wrong, but several are aimed at an outdoor vehicle
+with room to move.
+
+| Parameter | Default | Why you might change it |
+|---|---|---|
+| `AVOID_MARGIN` | 2 m | Enormous indoors. A machine in a room will refuse to approach anything. |
+| `OA_TYPE` | 0 | Off. Stopping only, no route finding, until this is set. |
+| `PRX1_IGN_ANG1..4` + `PRX1_IGN_WID1..4` | all 0 | Four arcs you can blank out. The obvious use is the vehicle's own structure, which otherwise reads as a permanent obstacle. |
+| `PRX_FILT` | 0.25 Hz | Heavy smoothing against a 10Hz feed. Expect sluggish reactions. |
+| `AVOID_BACKUP_SPD` | 0.75 m/s | It actively reverses, it does not merely stop. |
+
+### Do not set the yaw correction twice
+
+There are two independent places to rotate the picture: `MOUNT_YAW_DEG` at the
+top of the sketch, and `PRX1_YAW_CORR` on the autopilot. Both default to zero.
+
+If the sensor is not mounted facing forward, set **one of them**. Setting both
+rotates the map by twice the intended amount, which looks like a plausible map
+of a room that is not the room you are in, and is miserable to diagnose.
+
+Prefer the sketch, so the correction lives with the rest of the scan geometry
+rather than being split across two devices.
 
 ## Scan geometry
 
