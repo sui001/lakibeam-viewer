@@ -378,6 +378,18 @@ Keyed on packets arriving, **not** on returns. A sensor scanning an empty field
 legitimately reports nothing in range and is perfectly healthy. The question is
 whether the LiDAR is talking, not whether it can see anything.
 
+Confirmed on hardware 2026-09-12 by unplugging the Ethernet cable: the returns
+disappear from Mission Planner's proximity view within a second and come back
+on reconnection, sensor re-enable included.
+
+**Test this by watching the proximity view, not the status flags.** The
+`SYS_STATUS` proximity bits are not a reliable indicator on this firmware. They
+reported `present: False, health: False` while the feed was working perfectly,
+and `health: True` after thirty seconds of total silence. Both were wrong, in
+opposite directions, and the second nearly had this recorded as a failed fix.
+ArduPilot's `PROXIMITY_MAV_TIMEOUT_MS` is 500ms and it does its job; the flag
+describing it does not.
+
 ~~The MAVLink path is untested.~~ **The whole chain works.** Confirmed on
 2026-09-12 against a real LakiBeam, an ESP32-S3 SuperMini and a Cube Orange+
 on TELEM2: 178 packets a second in, 176 points per packet, 10Hz of
