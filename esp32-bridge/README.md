@@ -224,6 +224,29 @@ to **0, disabled**, so out of the box you get stopping and no navigating. Set
 it to 1 for BendyRuler, which bends the path reactively, or 2 for Dijkstra,
 which plans a route inside the fence.
 
+### Where the 72 sectors actually go
+
+Worth knowing before tuning: ArduPilot's proximity boundary divides the area
+around the vehicle into **8 sectors by default**, keeping only the closest
+distance and angle within each. So the 72 five-degree sectors this bridge sends
+are consolidated to 8 of 45 degrees.
+
+That is not wasted. Nearest-within-sector survives, so a thin obstacle is never
+missed, and the reduction happens after the fine data has been used to find it.
+What is lost is angular precision about *where* the obstacle is. Mission
+Planner's proximity viewer shows this directly: returns appear as 45 degree
+arcs rather than a traced outline.
+
+It matters mostly for path planning. Stopping needs the nearest distance, which
+is intact. Routing around an obstacle needs to know which side it is on, and 45
+degrees is coarse for that indoors.
+
+Two things unconfirmed. ArduPilot's docs note each proximity driver "can
+override this and use a different number of sectors" without saying whether the
+MAVLink one does, and they are written around `DISTANCE_SENSOR` rather than
+`OBSTACLE_DISTANCE`. So 8 sectors is the confirmed default, not a confirmed
+fact about this path.
+
 ### The values worth reconsidering
 
 These are ArduPilot's defaults, checked against a Cube Orange+ running Rover
