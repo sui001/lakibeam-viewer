@@ -231,11 +231,18 @@ the link drops. If the sensor dies, sectors go to unknown and ArduPilot simply
 sees no obstacles, which is the dangerous failure direction. Worth adding a
 `DISTANCE_SENSOR` health heartbeat before relying on this outdoors.
 
-**The MAVLink path is untested.** Everything below it is not: on 2026-09-09 the
-SPI bus, the W5500, the Ethernet link, the sensor enable and the packet decode
-all ran against a real LakiBeam on an ESP32-S3 SuperMini. Measured about 178
-packets a second, 176 points per packet, no runts. What has never run is the
-`OBSTACLE_DISTANCE` output into a flight controller.
+~~The MAVLink path is untested.~~ **The whole chain works.** Confirmed on
+2026-09-12 against a real LakiBeam, an ESP32-S3 SuperMini and a Cube Orange+
+on TELEM2: 178 packets a second in, 176 points per packet, 10Hz of
+`OBSTACLE_DISTANCE` out, and ArduPilot republishing it as proximity with 44 of
+72 sectors carrying returns from 20cm to 11.9m. `increment_f` arrived as 5.00
+and the limits as 20/1500cm, matching what the bridge packs, so nothing is
+reinterpreted in transit.
+
+Two parameters are what stand between "wired correctly" and "working", and
+both fail silently: `PRX1_TYPE` defaults to 0, which makes ArduPilot discard
+`OBSTACLE_DISTANCE` on arrival, and `SERIAL2_BAUD` defaults to 57, so the port
+listens at 57600 while the bridge sends at 921600. Neither produces an error.
 
 ## Bring-up: prove the hardware before the MAVLink
 
