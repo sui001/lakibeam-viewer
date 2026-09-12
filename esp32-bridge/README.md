@@ -145,10 +145,18 @@ blank.
 
 ## Enable the sensor first
 
-**The bridge configures the sensor itself now**, five seconds after the link
-comes up and only if no packets have arrived. You should not have to do
-anything. This section is kept because it explains what the bridge is doing and
-how to do it by hand if that fails.
+**The bridge configures the sensor itself now**, five seconds after it goes
+quiet, and keeps retrying every 30 seconds while it stays quiet. You should not
+have to do anything. This section is kept because it explains what the bridge
+is doing and how to do it by hand if that fails.
+
+It retries rather than trying once per boot, and that distinction was earned.
+As a one-shot, pulling the Ethernet cable left the bridge sitting with the link
+back up, correctly muting its output, and permanently refusing to re-enable the
+sensor it knew how to fix. The LiDAR comes back from any interruption with its
+laser off, so once per boot is not enough. Quiet is measured from whichever is
+later, the link coming up or the last packet, which covers both a reconnect and
+the sensor going silent on its own with the link still up.
 
 The LakiBeam ships with its laser and rotor both off, and enabling the laser
 alone leaves the rotor at 0 rpm and produces no points at all, which looks

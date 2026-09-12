@@ -112,6 +112,10 @@ static const uint16_t  SCAN_PORT = 2368;
 // its laser and rotor are off, rather than because it is still starting.
 #define CONFIG_AFTER_MS 5000
 
+// Minimum gap between enable attempts. The commands write the sensor's EEPROM,
+// so a sensor that is unplugged rather than switched off must not be hammered.
+#define CONFIG_RETRY_MS 30000
+
 // ── Status LED ───────────────────────────────────────────────────────────────
 // Same ladder as lakibeam_bringup, deliberately. Once this is on a machine
 // there is no serial monitor, and the light is the only thing that will tell
@@ -156,7 +160,7 @@ static bool     eth_up = false;
 static uint32_t last_send_ms = 0;
 static uint32_t packets_in = 0, frames_out = 0;
 static uint32_t last_stat_ms = 0;
-static bool     config_done = false;   // laser/rotor enable already attempted
+static uint32_t last_config_ms = 0;    // when the laser/rotor enable was last tried
 static uint32_t link_up_ms = 0;
 static uint32_t packets_total = 0;     // survives the stat window reset
 static bool     eth_init_ok = false;   // did the W5500 answer over SPI at all
@@ -444,20 +448,41 @@ void loop() {
 
   uint32_t now = millis();
 
-  // Enable the laser and rotor, once, only if the sensor has never spoken.
-  // Guarded on packets_total rather than run unconditionally at boot so a
-  // sensor that is already scanning is left alone.
-  if (eth_up && !config_done && packets_total == 0 &&
-      now - link_up_ms >= CONFIG_AFTER_MS) {
-    config_done = true;
+  /*
+   * Enable the laser and rotor whenever the sensor has gone quiet, not once
+   * per boot.
+   *
+   * This was a one-shot, and that was wrong. The LiDAR comes back from any
+   * interruption with its laser off, so after a cable pull the bridge would
+   * sit amber forever with the link up, correctly muting its output and never
+   * fixing the thing it knew how to fix. Found by unplugging the Ethernet and
+   * watching it fail to recover.
+   *
+   * Quiet means no packet since whichever is later, the link coming up or the
+   * last packet received. That covers both ways this fails: a reconnect, and
+   * the sensor going silent on its own with the link still up, which it has
+   * now done three times.
+   *
+   * CONFIG_RETRY_MS is the guard against hammering the EEPROM at a sensor
+   * that is unplugged rather than merely switched off.
+   */
+  uint32_t quiet_since = (last_packet_ms > link_up_ms) ? last_packet_ms : link_up_ms;
+  bool sensor_quiet = eth_up && (now - quiet_since >= CONFIG_AFTER_MS);
+  bool may_retry = (last_config_ms == 0) || (now - last_config_ms >= CONFIG_RETRY_MS);
+
+  if (sensor_quiet && may_retry) {
+    last_config_ms = now;
     Serial.println("[cfg] Link is up but silent. Enabling laser and rotor.");
     if (sensor_configure()) {
       Serial.println("[cfg] Accepted. Scan data should start within a second.");
     } else {
-      Serial.println("[cfg] At least one command failed. Proximity output will");
-      Serial.println("      be empty, which ArduPilot cannot tell from clear air.");
+      Serial.printf("[cfg] At least one command failed. Retrying in %ds. Output\n",
+                    CONFIG_RETRY_MS / 1000);
+      Serial.println("      stays muted meanwhile, so ArduPilot sees a fault.");
     }
-    last_send_ms = now;
+    // The HTTP round trip can take seconds. Do not let the send timer think it
+    // has a backlog to catch up on.
+    last_send_ms = millis();
   }
 
   if (now - last_send_ms >= SEND_INTERVAL_MS) {
