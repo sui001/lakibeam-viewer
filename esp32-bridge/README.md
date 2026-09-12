@@ -187,8 +187,12 @@ out rather than returning an error.
 | `SERIALn_PROTOCOL` | `2` | MAVLink2 on the port you wired to |
 | `SERIALn_BAUD` | `921` | 921600, matching `FC_BAUD` in the sketch |
 
-Replace `n` with the serial port number you used. On a Cube Orange+, Serial1 or
-Serial2 are the usual choices.
+On a Cube Orange+ the mapping is **TELEM1 = SERIAL1, TELEM2 = SERIAL2**,
+confirmed against ArduPilot's `hwdef/CubeOrangePlus/README.md`. Prefer
+TELEM2 and leave TELEM1 for a telemetry radio.
+
+RTS/CTS can be left unwired. It gates the autopilot's transmitting, not its
+receiving, so it is not in the path of an inbound sensor feed.
 
 Check it is working in Mission Planner's proximity view, or with MAVProxy:
 

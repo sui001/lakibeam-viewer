@@ -38,6 +38,10 @@
 
 // Serial link to the flight controller. Goes to a TELEM port (6-pin JST-GH),
 // not CAN: FC_TX to TELEM pin 3 (RX), FC_RX to TELEM pin 2 (TX), GND to pin 6.
+//
+// The headers split 1-7 on one side and 8-13 on the other, so these two sit
+// well clear of the SPI block. GPIO 2 is skipped as the strapping pin this
+// board misbehaves on.
 #define FC_TX       5
 #define FC_RX       4
 #define FC_BAUD    921600
