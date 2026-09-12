@@ -197,6 +197,32 @@ TELEM2 and leave TELEM1 for a telemetry radio.
 RTS/CTS can be left unwired. It gates the autopilot's transmitting, not its
 receiving, so it is not in the path of an inbound sensor feed.
 
+### What working looks like
+
+![Mission Planner proximity view showing LakiBeam returns](img/mission_planner_proximity.png)
+
+Open it from the **Flight Data** screen: press **Ctrl-F**, then the
+**Proximity** button. `+` and `-` change the display radius, which is worth
+doing immediately since the default is sized for aircraft. The shot above is
+zoomed right in to a 1m radius.
+
+Three things to read from it:
+
+**The gap at the lower left is the blind arc, and it should be behind you.**
+That is the sensor's 90 degree dead zone sitting where it belongs. If the gap
+is at the top, `MOUNT_YAW_DEG` is wrong and the vehicle is blind in the
+direction it drives.
+
+**The returns are arcs, not a traced outline.** Each is one of ArduPilot's 8
+sectors, 45 degrees wide, carrying the nearest distance within it. The bridge
+sends 72 five-degree sectors and ArduPilot consolidates them, which is why a
+wall reads as a stepped series of arcs rather than a line.
+
+**Sub-metre returns all round mean the sensor can see its own mount**, or the
+bench it is sitting on. Use `PRX1_IGN_ANG1..4` with `PRX1_IGN_WID1..4` to mask
+those arcs out, or the vehicle treats its own structure as a permanent
+obstacle.
+
 Check it is working in Mission Planner's proximity view, or with MAVProxy:
 
 ```
