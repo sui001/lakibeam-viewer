@@ -75,6 +75,21 @@ static const uint16_t  SCAN_PORT = 2368;
 // is pointing forward.
 #define MOUNT_YAW_DEG 180.0f
 
+// The LakiBeam's azimuth increases the opposite way round to MAVLink's sector
+// numbering, so mapping one straight onto the other produces a mirror image:
+// an obstacle on the left is reported on the right. Found the hard way, by
+// having to physically invert the sensor to get the correct side, which works
+// precisely because it reverses the direction of rotation.
+//
+// Negating the angle does the same thing in software. The blind arc is
+// symmetric about the sensor's zero, so this does not move it and
+// MOUNT_YAW_DEG stays 180.
+//
+// Set to 0 if a future sensor or firmware numbers its azimuth the other way.
+// The tell is that the picture looks plausible but turns the wrong way when
+// you walk around the machine.
+#define MOUNT_MIRROR 1
+
 // ── Packet format ────────────────────────────────────────────────────────────
 // 1206 bytes: 12 sub-packets of 100 bytes, then uint32 timestamp + uint16 factory.
 // sub-packet: uint16 header (0xEEFF), uint16 azimuth (0.01 deg),
@@ -87,6 +102,11 @@ static const uint16_t  SCAN_PORT = 2368;
 
 // ── Output rate ──────────────────────────────────────────────────────────────
 #define SEND_INTERVAL_MS 100        // 10Hz
+
+// Go quiet if the sensor has said nothing for this long. Comfortably longer
+// than the ~6ms between packets at 179/sec, so jitter never trips it, and well
+// under ArduPilot's own proximity timeout so the autopilot notices promptly.
+#define SENSOR_STALE_MS 500
 
 // How long to wait after link-up before deciding the sensor is silent because
 // its laser and rotor are off, rather than because it is still starting.
@@ -143,6 +163,8 @@ static bool     eth_init_ok = false;   // did the W5500 answer over SPI at all
 static uint32_t last_packet_ms = 0;
 static uint32_t last_return_ms = 0;    // last packet that put a return in a sector
 static bool     saw_return = false;    // set by sector_add for the packet in hand
+static bool     was_alive = true;      // for logging health transitions only
+static uint32_t frames_muted = 0;      // frames deliberately not sent
 
 static void sectors_reset() {
   for (int i = 0; i < NUM_SECTORS; i++) sectors[i] = DIST_UNKNOWN;
@@ -161,7 +183,7 @@ static inline void sector_add(float angle_deg, uint16_t dist_mm) {
   uint16_t cm = dist_mm / 10;
   if (cm < MIN_DIST_CM || cm > MAX_DIST_CM) return;
 
-  float a = angle_deg + MOUNT_YAW_DEG;
+  float a = (MOUNT_MIRROR ? -angle_deg : angle_deg) + MOUNT_YAW_DEG;
   a = fmodf(a, 360.0f);
   if (a < 0) a += 360.0f;
 
@@ -440,7 +462,45 @@ void loop() {
 
   if (now - last_send_ms >= SEND_INTERVAL_MS) {
     last_send_ms = now;
-    send_obstacle_distance();
+
+    /*
+     * Health reporting, and it works by going quiet.
+     *
+     * Sending a frame every 100ms regardless of whether the sensor spoke means
+     * a dead sensor produces a confident stream of "nothing anywhere". That is
+     * indistinguishable from open ground, and it is the dangerous direction to
+     * fail in: the autopilot believes it can see, and believes the way is
+     * clear.
+     *
+     * Saying nothing is honest. ArduPilot's proximity backend times out within
+     * a few hundred milliseconds of the last message and marks itself
+     * unhealthy, which shows up in SYS_STATUS and which avoidance treats as a
+     * fault rather than as clear air.
+     *
+     * Keyed on packets arriving, NOT on returns. A sensor scanning an empty
+     * field legitimately reports nothing in range and is perfectly healthy.
+     * The question is whether the LiDAR is talking, not whether it can see
+     * anything.
+     */
+    bool sensor_alive = packets_total > 0 && (now - last_packet_ms) < SENSOR_STALE_MS;
+
+    if (sensor_alive) {
+      send_obstacle_distance();
+      if (!was_alive) {
+        Serial.println("[health] sensor back. Resuming OBSTACLE_DISTANCE.");
+        was_alive = true;
+      }
+    } else {
+      frames_muted++;
+      if (was_alive) {
+        Serial.printf("[health] no scan data for %dms. Going quiet so ArduPilot\n",
+                      SENSOR_STALE_MS);
+        Serial.println("         marks proximity unhealthy instead of believing");
+        Serial.println("         the world is empty.");
+        was_alive = false;
+      }
+    }
+
     // Clear after sending so each message reflects one window, not a smear of
     // everything since boot. A stale sector is worse than an unknown one.
     sectors_reset();
@@ -448,14 +508,15 @@ void loop() {
 
   if (now - last_stat_ms >= 5000) {
     last_stat_ms = now;
-    Serial.printf("[stat] packets in %lu, mavlink out %lu, link %s\n",
-                  packets_in, frames_out, eth_up ? "up" : "down");
+    Serial.printf("[stat] packets in %lu, mavlink out %lu, muted %lu, link %s\n",
+                  packets_in, frames_out, frames_muted, eth_up ? "up" : "down");
     if (packets_in == 0 && eth_up) {
       Serial.println("       No scan data, and the laser/rotor enable was");
-      Serial.println("       already sent. ArduPilot is being told the world is");
-      Serial.println("       empty right now. See ../README.md.");
+      Serial.println("       already sent. Output is muted, so ArduPilot should");
+      Serial.println("       be reporting proximity unhealthy. See ../README.md.");
     }
     packets_in = 0;
     frames_out = 0;
+    frames_muted = 0;
   }
 }

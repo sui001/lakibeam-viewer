@@ -246,6 +246,22 @@ That matters because simple avoidance reverses. `AVOID_BACKUP_SPD` defaults to
 vehicle is blind to. **Consider `AVOID_BACKUP_SPD = 0`** so it stops instead,
 unless something else is watching behind.
 
+### The scan is mirrored, and has to be un-mirrored
+
+`MOUNT_MIRROR` is 1 because the LakiBeam's azimuth increases the opposite way
+round to MAVLink's sector numbering. Map one straight onto the other and an
+obstacle on the left is reported on the right.
+
+**The tell:** the picture looks entirely plausible until you walk around the
+machine, and it turns the wrong way. It was found by having to physically
+invert the sensor to get the correct side, which works precisely because
+flipping it reverses the direction of rotation.
+
+Negating the angle does the same in software. The blind arc is symmetric about
+the sensor's zero, so mirroring does not move it and `MOUNT_YAW_DEG` stays 180.
+Verified against the raw feed: the blind arc moved from 105-225 to 135-255
+degrees, exactly its own mirror image.
+
 ### Where the 72 sectors actually go
 
 Worth knowing before tuning: ArduPilot's proximity boundary divides the area
@@ -319,10 +335,22 @@ only if no packets have arrived. It is guarded on packet count rather than run
 at every boot because the settings persist to EEPROM, so a sensor that is
 already scanning needs no write.
 
-**No health reporting.** The bridge does not tell the flight controller when
-the link drops. If the sensor dies, sectors go to unknown and ArduPilot simply
-sees no obstacles, which is the dangerous failure direction. Worth adding a
-`DISTANCE_SENSOR` health heartbeat before relying on this outdoors.
+~~No health reporting.~~ **Fixed, and it works by going quiet.**
+
+Sending a frame every 100ms regardless of whether the sensor spoke means a dead
+sensor produces a confident stream of "nothing anywhere", which is
+indistinguishable from open ground. The autopilot believes it can see, and
+believes the way is clear.
+
+So the bridge now stops transmitting when no packet has arrived for
+`SENSOR_STALE_MS` (500ms). ArduPilot's proximity backend times out, marks
+itself unhealthy, and avoidance treats that as a fault rather than as clear
+air. The `[stat]` line reports muted frames so the mute is visible rather than
+silent.
+
+Keyed on packets arriving, **not** on returns. A sensor scanning an empty field
+legitimately reports nothing in range and is perfectly healthy. The question is
+whether the LiDAR is talking, not whether it can see anything.
 
 ~~The MAVLink path is untested.~~ **The whole chain works.** Confirmed on
 2026-09-12 against a real LakiBeam, an ESP32-S3 SuperMini and a Cube Orange+
