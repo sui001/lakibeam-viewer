@@ -386,9 +386,16 @@ Keyed on packets arriving, **not** on returns. A sensor scanning an empty field
 legitimately reports nothing in range and is perfectly healthy. The question is
 whether the LiDAR is talking, not whether it can see anything.
 
-Confirmed on hardware 2026-09-12 by unplugging the Ethernet cable: the returns
-disappear from Mission Planner's proximity view within a second and come back
-on reconnection, sensor re-enable included.
+Confirmed on hardware 2026-09-12 by unplugging the Ethernet cable: the LED goes
+slow red, the returns disappear from Mission Planner's proximity view within a
+second, and on reconnection it goes straight back to green with the proximity
+view correct again.
+
+One thing that run did **not** prove. Going straight to green means the sensor
+was still scanning when the link returned, so the enable never had to fire and
+the 30 second retry timer is still unexercised. The failure it was written for,
+a sensor that comes back with its laser off, has been seen three times but not
+since the retry was added.
 
 **Test this by watching the proximity view, not the status flags.** The
 `SYS_STATUS` proximity bits are not a reliable indicator on this firmware. They
