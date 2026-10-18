@@ -1,0 +1,186 @@
+{
+  "subject": "lakibeam-case",
+  "passed": true,
+  "claims": [
+    {
+      "claim": "body is a closed volume",
+      "kind": "require",
+      "passed": true,
+      "detail": "watertight=True winding=True vol=+16.0 cm3 open edges=0",
+      "facts": {
+        "watertight": true,
+        "winding_consistent": true,
+        "volume_cm3": 15.966,
+        "open_edges": 0
+      }
+    },
+    {
+      "claim": "body is one connected body",
+      "kind": "require",
+      "passed": true,
+      "detail": "1 bodies over 2.0 cm3, volumes [16.0] cm3",
+      "facts": {
+        "body_count": 1,
+        "body_volumes_cm3": [
+          16.0
+        ]
+      }
+    },
+    {
+      "claim": "body survives being written",
+      "kind": "require",
+      "passed": true,
+      "detail": "written and read back: watertight=True bodies=1 volume moved 0.000 cm3",
+      "facts": {
+        "watertight": true,
+        "body_count": 1,
+        "volume_delta_cm3": 0.0
+      }
+    },
+    {
+      "claim": "body fits the plate",
+      "kind": "require",
+      "passed": true,
+      "detail": "35 x 75 x 29 in 220x220x250, flat",
+      "facts": {
+        "extents": [
+          35.0,
+          75.0,
+          28.56
+        ],
+        "plate": "220x220x250",
+        "orientation": "flat"
+      }
+    },
+    {
+      "claim": "lid is a closed volume",
+      "kind": "require",
+      "passed": true,
+      "detail": "watertight=True winding=True vol=+6.6 cm3 open edges=0",
+      "facts": {
+        "watertight": true,
+        "winding_consistent": true,
+        "volume_cm3": 6.566,
+        "open_edges": 0
+      }
+    },
+    {
+      "claim": "lid is one connected body",
+      "kind": "require",
+      "passed": true,
+      "detail": "1 bodies over 2.0 cm3, volumes [6.6] cm3",
+      "facts": {
+        "body_count": 1,
+        "body_volumes_cm3": [
+          6.6
+        ]
+      }
+    },
+    {
+      "claim": "lid survives being written",
+      "kind": "require",
+      "passed": true,
+      "detail": "written and read back: watertight=True bodies=1 volume moved 0.000 cm3",
+      "facts": {
+        "watertight": true,
+        "body_count": 1,
+        "volume_delta_cm3": 0.0
+      }
+    },
+    {
+      "claim": "lid fits the plate",
+      "kind": "require",
+      "passed": true,
+      "detail": "35 x 75 x 7 in 220x220x250, flat",
+      "facts": {
+        "extents": [
+          35.0,
+          75.0,
+          7.0
+        ],
+        "plate": "220x220x250",
+        "orientation": "flat"
+      }
+    },
+    {
+      "claim": "RJ45 aperture is open does not interfere",
+      "kind": "require",
+      "passed": true,
+      "detail": "overlap 0.0000 cm3, allowed 0.0100",
+      "facts": {
+        "overlap_cm3": 0.0,
+        "allowed_cm3": 0.01
+      }
+    },
+    {
+      "claim": "USB-C aperture is open does not interfere",
+      "kind": "require",
+      "passed": true,
+      "detail": "overlap 0.0000 cm3, allowed 0.0100",
+      "facts": {
+        "overlap_cm3": 0.0,
+        "allowed_cm3": 0.01
+      }
+    },
+    {
+      "claim": "board envelope is clear does not interfere",
+      "kind": "require",
+      "passed": true,
+      "detail": "overlap 0.0000 cm3, allowed 0.0100",
+      "facts": {
+        "overlap_cm3": 0.0,
+        "allowed_cm3": 0.01
+      }
+    },
+    {
+      "claim": "screw pilots are bored does not interfere",
+      "kind": "require",
+      "passed": true,
+      "detail": "overlap 0.0000 cm3, allowed 0.0100",
+      "facts": {
+        "overlap_cm3": 0.0,
+        "allowed_cm3": 0.01
+      }
+    },
+    {
+      "claim": "seated lid clears the connectors does not interfere",
+      "kind": "require",
+      "passed": true,
+      "detail": "overlap 0.0000 cm3, allowed 0.0100",
+      "facts": {
+        "overlap_cm3": 0.0,
+        "allowed_cm3": 0.01
+      }
+    },
+    {
+      "claim": "seated lid clears the board does not interfere",
+      "kind": "require",
+      "passed": true,
+      "detail": "overlap 0.0000 cm3, allowed 0.0100",
+      "facts": {
+        "overlap_cm3": 0.0,
+        "allowed_cm3": 0.01
+      }
+    },
+    {
+      "claim": "port apertures are oversize",
+      "kind": "note",
+      "passed": null,
+      "detail": "1.00 mm clearance per side, widths derived not measured",
+      "facts": {
+        "port_fit_mm": 1.0
+      }
+    },
+    {
+      "claim": "corner holes are assumed",
+      "kind": "note",
+      "passed": null,
+      "detail": "inset 2.20 x 2.50, overhang 0.00, none of these measured yet",
+      "facts": {
+        "hole_inset_x": 2.2,
+        "hole_inset_y": 2.5,
+        "rj45_overhang": 0.0
+      }
+    }
+  ]
+}

@@ -473,3 +473,17 @@ The bridge prints statistics to USB serial every 5 seconds:
 Roughly 1000 packets in per 5 seconds and 50 MAVLink frames out is correct at
 10Hz. Zero packets in with the link up almost always means the laser or rotor
 was never enabled.
+
+## Case
+
+`case/` is a printable enclosure for the bridge perf board (30 x 70 board,
+W5500 at one end, S3 SuperMini at the other, ports out the short ends, snap-fit
+lid). Built in build123d; `lakibeam_case.py` writes the STLs beside itself and
+checks them against the claims in `claims.py`, exiting non-zero if any fail.
+`lakibeam_case_views.py` draws the SVG views. The board's corner holes and port
+sizes are still estimates, not measured.
+
+```bash
+python esp32-bridge/case/lakibeam_case.py
+python esp32-bridge/case/lakibeam_case_views.py
+```
