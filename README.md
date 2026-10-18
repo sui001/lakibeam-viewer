@@ -1,5 +1,9 @@
 # LakiBeam viewer
 
+> **Archived 19 Oct 2026.** This still works as it stands, and stays here to
+> read and use. Development has moved into a private project repo, so this
+> copy will not get further changes.
+
 Live room scanning for the Richbeam LakiBeam 1 LIDAR. Reads the sensor's UDP
 point stream and draws the room in a browser.
 
